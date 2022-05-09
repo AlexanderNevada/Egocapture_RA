@@ -18,7 +18,7 @@ import pickle
 from IPython import embed
 
 # define path and constants
-data_root = '/local/home/zhqian/sp/data/egocapture'
+data_root = '/media/qimaqi/My Passport/ego_data'
 confidence_thresh = 0.2
 rescale = 1.2
 valid_joints_thresh = 6
@@ -28,7 +28,14 @@ resize_scale = 2
 parser = argparse.ArgumentParser()
 parser.add_argument('--recordings', nargs='+', default=[], help='Recordings to be processed')
 parser.add_argument('--visualize', dest='visualize', action='store_true')
-parser.add_argument('--resume', dest='resume', action='store_true')
+parser.add_argument('--resume', dest='resume', action='store_false')
+parser.add_argument('--rflag',dest='rflag', action='store_true' )
+parser.set_defaults(rflag=True)
+# parser.set_defaults(rflag=True)
+
+
+# visualize 2d joints
+hand_joint_idx = [2, 4, 5, 8, 9, 12, 13, 16, 17, 20]  # vis 2 joints for each finger (end / tip)
 
 def merge(valid_people):
     if len(valid_people) == 1:
@@ -39,16 +46,56 @@ def merge(valid_people):
         keypoints[k, :] = valid_people[idx][k, :]
     return keypoints
 
-def draw_keypoints(keypoints, img, frame=0, waitTime=0, save_name=None):
+def merge_hand(valid_people_hand):
+    if len(valid_people_hand) == 1:
+        return valid_people_hand[0]
+    keypoints = np.zeros((21, 3))
+    for k in range(21):
+        idx = np.argmax([x[k,2] for x in valid_people_hand])
+        keypoints[k, :] = valid_people_hand[idx][k, :]
+    return keypoints
+
+def merge_face(valid_people_face):
+    if len(valid_people_face) == 1:
+        return valid_people_face[0]
+    keypoints = np.zeros((70, 3))
+    for k in range(70):
+        idx = np.argmax([x[k,2] for x in valid_people_face])
+        keypoints[k, :] = valid_people_face[idx][k, :]
+    return keypoints
+
+
+def draw_keypoints(keypoints, lhand_keypoint,rhand_keypoint,face_keypoint,img, frame=0, waitTime=0, save_name=None):
     draw = ImageDraw.Draw(img)
 
     valid = keypoints[:, -1] > confidence_thresh
     valid_keypoints = keypoints[valid][:, :-1]
+    valid_lhand = lhand_keypoint[:,-1] > confidence_thresh
+    valid_lhand_keypoints = lhand_keypoint[valid_lhand][:,:-1]
+    valid_rhand =  rhand_keypoint[:,-1] > confidence_thresh
+    valid_rhand_keypoints = rhand_keypoint[valid_rhand][:,:-1]
+    valid_face =  face_keypoint[:,-1] > confidence_thresh
+    valid_face_keypoints = face_keypoint[valid_face][:,:-1]
 
     for k in range(valid_keypoints.shape[0]):
         draw.ellipse((valid_keypoints[k][0] / resize_scale - 4, valid_keypoints[k][1] / resize_scale - 4,
                       valid_keypoints[k][0] / resize_scale + 4, valid_keypoints[k][1] / resize_scale + 4),
                      fill=(255, 0, 0, 0))
+
+    for k in range(valid_lhand_keypoints.shape[0]):
+        draw.ellipse((valid_lhand_keypoints[k][0] / resize_scale - 1, valid_lhand_keypoints[k][1] / resize_scale - 1,
+                      valid_lhand_keypoints[k][0] / resize_scale + 1, valid_lhand_keypoints[k][1] / resize_scale + 1),
+                     fill=(255, 0, 0, 0))
+
+    for k in range(valid_rhand_keypoints.shape[0]):
+        draw.ellipse((valid_rhand_keypoints[k][0] / resize_scale - 1, valid_rhand_keypoints[k][1] / resize_scale - 1,
+                      valid_rhand_keypoints[k][0] / resize_scale + 1, valid_rhand_keypoints[k][1] / resize_scale + 1),
+                     fill=(255, 0, 0, 0))
+
+    # for k in range(valid_face_keypoints.shape[0]):
+    #     draw.ellipse((valid_face_keypoints[k][0] / resize_scale - 2, valid_face_keypoints[k][1] / resize_scale - 2,
+    #                   valid_face_keypoints[k][0] / resize_scale + 2, valid_face_keypoints[k][1] / resize_scale + 2),
+    #                  fill=(255, 0, 0, 0))
 
     img = cv2.cvtColor(np.array(img), cv2.COLOR_BGR2RGB)
 
@@ -79,12 +126,17 @@ def transform_list_to_dict(l):
         d[k] = np.stack([np.squeeze(x[k]) for x in l])
     return d
 
-def is_valid_frame(valid_people):
+def is_valid_frame(valid_people, valid_detections_lhand, valid_detections_rhand, valid_detections_face):
 
     if len(valid_people) == 0:
-        return False, None
+        return False, None, None, None, None
     # merge keypoints
+    # print('valid_people',valid_people,np.shape(valid_people))
     keypoints = merge(valid_people)
+    lhand_keypoint = merge_hand(valid_detections_lhand)
+    rhand_keypoint = merge_hand(valid_detections_rhand)
+    face_keypoint = merge_face(valid_detections_face)
+    # print('keypoints',keypoints,np.shape(keypoints))
 
     face_joints = [0, 15, 16, 17, 18]
     lfoot_joints = [11, 22, 23, 24]
@@ -109,17 +161,23 @@ def is_valid_frame(valid_people):
             n_valid_joints += 1
 
     if n_valid_joints < valid_joints_thresh:
-        return False, None
+        return False, None, None, None, None
 
-    return True, keypoints
+    return True, keypoints, lhand_keypoint, rhand_keypoint, face_keypoint
 
 def get_root_path(rec):
-    rec_dir = join(data_root, 'hololens_data', f'record_{rec[10:18]}', rec)
-    rec_dir = glob(join(rec_dir, '2021*'))[0]
+    # rec_dir = join(data_root, 'hololens_data', f'record_{rec[10:18]}', rec)
+    # rec_dir = glob(join(rec_dir, '2021*'))[0]
+    
+    rec_dir = glob(join(data_root,'hololens_data','*',rec))[0]
+    rec_dir = glob(join(rec_dir, '2022*'))[0]
+    # Qi 
+    print('rec',rec_dir)
     image_dir = join(rec_dir, 'PV')
     openpose_dir = join(rec_dir, 'keypoints')
     return image_dir, openpose_dir, rec_dir
 
+# Qi why no return here
 def load_data(rec_dir, output_list, valid_list, start, end):
     keypoints = np.load(join(rec_dir, 'keypoints.npz'))
     valid = np.load(join(rec_dir, 'valid_frame.npz'))
@@ -147,16 +205,18 @@ def load_data(rec_dir, output_list, valid_list, start, end):
             }
 
 
-def clean_data(recordings=None, resume=False):
+def clean_data(recordings=None, resume=False, range_flag=False, x_filter = 700):
     for rec in recordings:
         image_dir, openpose_dir, rec_dir = get_root_path(rec)
 
+        # print('image_dir',image_dir)
         # get frame range and gender for the sequence
-        df = pd.read_csv(join(data_root, 'gt_info.csv'))
+        df = pd.read_csv(join(data_root, 'gt_info-2022.csv'))
         info = df.loc[df['recording_name'] == rec]
+        # print('info',info)
         gender = info['body_idx_fpv'].iloc[0][2]
-        starts = np.array(info['start'])
-        ends = np.array(info['end'])
+        starts = np.array(info['start']).astype(np.int32)
+        ends = np.array(info['end']).astype(np.int32)
 
         output_lists = []
         valid_lists = []
@@ -164,10 +224,13 @@ def clean_data(recordings=None, resume=False):
         for start, end in zip(starts, ends):
 
             print(f'Start processing, Start: {start}, End: {end}')
-
+            
             output_list = [None] * (end - start)
             valid_list = [None] * (end - start)
+
+            print('resume',resume)
             if resume:
+                
                 load_data(rec_dir, output_list, valid_list, start, end)
                 embed()
 
@@ -176,14 +239,17 @@ def clean_data(recordings=None, resume=False):
             while frame < end:
                 try:
                     image_file = glob(join(image_dir, f'*frame_{frame:05d}.jpg'))[0]
+                    print('image_file',image_file)
                 except IndexError:
                     frame += 1
                     if frame >= auto_end_frame:
                         auto_end_frame = -1
                     continue
                 openpose_file = join(openpose_dir, image_file.split('/')[-1][:-4] + '_keypoints.json')
-
                 valid_detections = []
+                valid_detections_rhand = []
+                valid_detections_lhand = []
+                valid_detections_face = []
                 auto = frame < auto_end_frame
 
                 rel_image_path = os.path.relpath(image_file, data_root)
@@ -196,6 +262,11 @@ def clean_data(recordings=None, resume=False):
                     print(f'Automatically processing frame {frame:05d}, {len(people)} people detected')
                     valid_detections = [np.reshape(x['pose_keypoints_2d'], (-1, 3))
                                     for x in people]
+                    
+                    valid_detections_lhand = [np.reshape(x['hand_left_keypoints_2d'],(-1,3)) for x in people]
+                    valid_detections_rhand = [np.reshape(x['hand_right_keypoints_2d'],(-1,3)) for x in people]
+                    valid_detections_face = [np.reshape(x['face_keypoints_2d'],(-1,3)) for x in people]
+          
                 else:
                     # Manual mode
 
@@ -207,12 +278,36 @@ def clean_data(recordings=None, resume=False):
                     frame_change = -1
 
                     for idx, person in enumerate(people):
-                        keypoints = person['pose_keypoints_2d']
-                        keypoints = np.reshape(np.array(keypoints), (-1, 3))
+                        #keypoints = person['pose_keypoints_2d']
+                        #keypoints = np.reshape(np.array(keypoints), (-1, 3))
+                        keypoints = np.array(person['pose_keypoints_2d'], dtype=np.float32).reshape([-1, 3])  # [25, 3]
+                        lhand_keypoint = np.array(person['hand_left_keypoints_2d'], dtype=np.float32).reshape([-1, 3])  # [21, 3]
+                        rhand_keypoint = np.array(person['hand_right_keypoints_2d'], dtype=np.float32).reshape([-1, 3])
+                        face_keypoint = np.array(person['face_keypoints_2d'], dtype=np.float32).reshape([-1, 3])
 
-                        draw_keypoints(keypoints, img.copy(), frame)
+                        # hand_keypoints = np.concatenate([lhand_keypoint[hand_joint_idx, :],
+                        #                      rhand_keypoint[hand_joint_idx, :]], axis=0)  # [20, 3]  # both hands for THE person
 
-                        action = input(f'Frame {frame}, Person {idx + 1}/{len(people)}, Action: ')
+                        draw_keypoints(keypoints, lhand_keypoint,rhand_keypoint,face_keypoint, img.copy(), frame,waitTime=1000)
+
+                        keypoints_0_reshape = keypoints[:, 0] # x coordinate
+                        non_zero_0_ind = np.nonzero(keypoints_0_reshape)
+                        non_zero_0 = keypoints_0_reshape[non_zero_0_ind]
+                        mean_0 = np.mean(non_zero_0,axis=0)
+                        # print('mean_0',mean_0)
+
+                        ## hardcode range filter
+                        
+                        if range_flag:
+                            if mean_0 < x_filter:
+                                action = 'n' 
+                            else:
+                                action = input(f'Frame {frame}, Person {idx + 1}/{len(people)}, Action: ')
+                        else:
+                            action = input(f'Frame {frame}, Person {idx + 1}/{len(people)}, Action: ')
+                        # action = input(f'Frame {frame}, Person {idx + 1}/{len(people)}, Action: ')
+
+                        
 
                         '''
                         Possible actions:
@@ -229,6 +324,9 @@ def clean_data(recordings=None, resume=False):
                         try:
                             if action == '' or action == 'y':
                                 valid_detections.append(keypoints)
+                                valid_detections_lhand.append(lhand_keypoint)
+                                valid_detections_rhand.append(rhand_keypoint)
+                                valid_detections_face.append(face_keypoint)
                             elif action == 'n' or action == 'a':
                                 continue
                             elif action == 'b':
@@ -244,6 +342,11 @@ def clean_data(recordings=None, resume=False):
                                 auto_end_frame = min(int(action[5:]) + 1, end)
                                 frame_change = frame
                                 break
+                            elif action[0] == 'r':
+                                frame_change = frame
+                                x_filter = int(action[2:])
+
+                                
                             else:
                                 print("Wrong action")
                                 frame_change = frame
@@ -256,8 +359,10 @@ def clean_data(recordings=None, resume=False):
                     if frame_change >= 0:
                         frame = frame_change
                         continue
-
-                valid, keypoints = is_valid_frame(valid_detections)
+                
+                # print('valid_detections',valid_detections,np.shape(valid_detections))
+                valid, keypoints, lhand_keypoint, rhand_keypoint,face_keypoint = is_valid_frame(valid_detections, 
+                                                valid_detections_lhand, valid_detections_rhand,valid_detections_face )
 
                 if valid:
                     center, scale = get_center_scale(keypoints)
@@ -265,11 +370,14 @@ def clean_data(recordings=None, resume=False):
                         'center': center,
                         'scale': scale,
                         'keypoints': keypoints,
+                        'hand_left_keypoints_2d': lhand_keypoint,
+                        'hand_right_keypoints_2d':rhand_keypoint,
+                        'face_keypoints_2d': face_keypoint,
                         'imgname': rel_image_path,
                         'gender': gender,
                     }
                     if auto:
-                        draw_keypoints(keypoints, img.copy(), frame, 400)
+                        draw_keypoints(keypoints, lhand_keypoint,rhand_keypoint,face_keypoint, img.copy(), frame, 400)
                 else:
                     output_list[frame - start] = None
 
@@ -318,6 +426,9 @@ def filter_data(recs):
                 auto_end_idx = -1
             image_file = join(data_root, imgname)
             keypoints = kp_file['keypoints'][idx]
+            lhand_keypoint = kp_file['hand_left_keypoints_2d'][idx]
+            rhand_keypoint = kp_file['hand_right_keypoints_2d'][idx]
+            face_keypoint = kp_file['face_keypoints_2d'][idx]
 
             img = Image.open(image_file)
             img = img.resize((img.size[0] // resize_scale, img.size[1] // resize_scale))
@@ -325,9 +436,9 @@ def filter_data(recs):
             auto = idx < auto_end_idx
             if auto:
                 print(f'Index {idx}/{n_frames - 1}')
-                draw_keypoints(keypoints, img.copy(), idx, 200)
+                draw_keypoints(keypoints, lhand_keypoint,rhand_keypoint,face_keypoint,img.copy(), idx, 200)
             else:
-                draw_keypoints(keypoints, img.copy(), idx)
+                draw_keypoints(keypoints, lhand_keypoint,rhand_keypoint,face_keypoint,img.copy(), idx, 1000)
                 idx_change = -1
                 while True:
                     action = input(f'Index {idx + 1}/{n_frames}, Action:')
@@ -367,9 +478,9 @@ def get_recs_from_dates(dates):
         recs.extend([x.split('/')[-1] for x in date_recs])
     return recs
 
-def save_keypoint_images():
-    dates = ['0911', '0918', '0910', '0921', '0923']
-    recs = get_recs_from_dates(dates)
+def save_keypoint_images(recs):
+    # dates = ['0911', '0918', '0910', '0921', '0923']
+    # recs = get_recs_from_dates(dates)
     for rec in tqdm(recs):
         image_dir, openpose_dir, rec_dir = get_root_path(rec)
 
@@ -379,6 +490,10 @@ def save_keypoint_images():
             imgname = kp_file['imgname'][idx]
             image_file = join(data_root, imgname)
             keypoints = kp_file['keypoints'][idx]
+            lhand_keypoint = kp_file['hand_left_keypoints_2d'][idx]
+            rhand_keypoint = kp_file['hand_right_keypoints_2d'][idx]
+            face_keypoint = kp_file['face_keypoints_2d'][idx]
+
 
             img = Image.open(image_file)
             img = img.resize((img.size[0] // resize_scale, img.size[1] // resize_scale))
@@ -388,11 +503,11 @@ def save_keypoint_images():
                 os.makedirs(save_dir)
             save_name = join(save_dir, f'{idx:05d}.jpg')
 
-            draw_keypoints(keypoints, img.copy(), save_name=save_name)
+            draw_keypoints(keypoints, lhand_keypoint,rhand_keypoint,face_keypoint, img.copy(), save_name=save_name)
 
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    # clean_data(recordings=args.recordings, resume=args.resume)
+    clean_data(recordings=args.recordings, resume=args.resume, range_flag = args.rflag)
     # filter_data(args.recordings)
-    save_keypoint_images()
+    save_keypoint_images(args.recordings)
