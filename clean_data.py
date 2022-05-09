@@ -200,10 +200,12 @@ def load_data(rec_dir, output_list, valid_list, start, end):
                 'center': keypoints['center'][keypoints_idx],
                 'scale': keypoints['scale'][keypoints_idx],
                 'keypoints': keypoints['keypoints'][keypoints_idx],
+                'hand_left_keypoints_2d': keypoints['hand_left_keypoints_2d'][keypoints_idx],
+                'hand_right_keypoints_2d':keypoints['hand_right_keypoints_2d'][keypoints_idx],
+                'face_keypoints_2d': keypoints['face_keypoints_2d'][keypoints_idx],
                 'imgname': keypoints['imgname'][keypoints_idx],
                 'gender': keypoints['gender'][keypoints_idx],
             }
-
 
 def clean_data(recordings=None, resume=False, range_flag=False, x_filter = 700):
     for rec in recordings:
@@ -501,9 +503,12 @@ def save_keypoint_images(recs):
             save_dir = join(data_root, 'kp_vis', rec)
             if not os.path.exists(save_dir):
                 os.makedirs(save_dir)
-            save_name = join(save_dir, f'{idx:05d}.jpg')
+            new_name= os.path.basename(imgname).split('_')[-1]
+            # save_name = join(save_dir, f'{idx:05d}.jpg')
+            save_name = join(save_dir, new_name)
 
             draw_keypoints(keypoints, lhand_keypoint,rhand_keypoint,face_keypoint, img.copy(), save_name=save_name)
+
 
 
 if __name__ == '__main__':
