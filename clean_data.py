@@ -67,21 +67,35 @@ def merge_face(valid_people_face):
 
 def draw_keypoints(keypoints, lhand_keypoint,rhand_keypoint,face_keypoint,img, frame=0, waitTime=0, save_name=None):
     draw = ImageDraw.Draw(img)
+  
+    #valid = keypoints[:, -1] > confidence_thresh
+    valid_keypoints = keypoints[:, :-1]
+    valid_lhand = lhand_keypoint[:,-1] 
+    valid_lhand_keypoints = lhand_keypoint[:,:-1]
+    valid_rhand =  rhand_keypoint[:,-1] 
+    valid_rhand_keypoints = rhand_keypoint[:,:-1]
+    valid_face =  face_keypoint[:,-1]
+    valid_face_keypoints = face_keypoint[:,:-1]
 
-    valid = keypoints[:, -1] > confidence_thresh
-    valid_keypoints = keypoints[valid][:, :-1]
-    valid_lhand = lhand_keypoint[:,-1] > confidence_thresh
-    valid_lhand_keypoints = lhand_keypoint[valid_lhand][:,:-1]
-    valid_rhand =  rhand_keypoint[:,-1] > confidence_thresh
-    valid_rhand_keypoints = rhand_keypoint[valid_rhand][:,:-1]
-    valid_face =  face_keypoint[:,-1] > confidence_thresh
-    valid_face_keypoints = face_keypoint[valid_face][:,:-1]
-
+    line_joint_indexs = [[0, 1], [1, 2], [1, 5], [1, 8], [2, 3], [3, 4], [5, 6], [6, 7], [8, 9], [8, 12],
+                             [9, 10], [10, 11], [12, 13], [13, 14]]
+    
     for k in range(valid_keypoints.shape[0]):
         draw.ellipse((valid_keypoints[k][0] / resize_scale - 4, valid_keypoints[k][1] / resize_scale - 4,
                       valid_keypoints[k][0] / resize_scale + 4, valid_keypoints[k][1] / resize_scale + 4),
                      fill=(255, 0, 0, 0))
-
+ 
+    for index_pair in line_joint_indexs:
+        if valid_keypoints[index_pair[0]][0] !=0 and valid_keypoints[index_pair[1]][0] !=0 and valid_keypoints[index_pair[0]][1] !=0 and valid_keypoints[index_pair[1]][1] !=0:
+            try:
+                draw.line(xy=[valid_keypoints[index_pair[0]][0] / resize_scale,
+                                    valid_keypoints[index_pair[0]][1] / resize_scale,
+                                    valid_keypoints[index_pair[1]][0] / resize_scale,
+                                    valid_keypoints[index_pair[1]][1] / resize_scale],
+                                fill=(255, 0, 0, 0), width=1)
+            except:
+                pass
+                          
     for k in range(valid_lhand_keypoints.shape[0]):
         draw.ellipse((valid_lhand_keypoints[k][0] / resize_scale - 1, valid_lhand_keypoints[k][1] / resize_scale - 1,
                       valid_lhand_keypoints[k][0] / resize_scale + 1, valid_lhand_keypoints[k][1] / resize_scale + 1),
@@ -207,10 +221,10 @@ def load_data(rec_dir, output_list, valid_list, start, end):
                 'gender': keypoints['gender'][keypoints_idx],
             }
 
-def clean_data(recordings=None, resume=False, range_flag=False, x_filter = 0):
+def clean_data(recordings=None, resume=False, range_flag=False, x_filter_min = 0, x_filter_max = 2592):
     for rec in recordings:
+        q_filter_on = False
         image_dir, openpose_dir, rec_dir = get_root_path(rec)
-
         # print('image_dir',image_dir)
         # get frame range and gender for the sequence
         df = pd.read_csv(join(data_root, 'gt_info-2022.csv'))
@@ -290,7 +304,7 @@ def clean_data(recordings=None, resume=False, range_flag=False, x_filter = 0):
                         # hand_keypoints = np.concatenate([lhand_keypoint[hand_joint_idx, :],
                         #                      rhand_keypoint[hand_joint_idx, :]], axis=0)  # [20, 3]  # both hands for THE person
 
-                        draw_keypoints(keypoints, lhand_keypoint,rhand_keypoint,face_keypoint, img.copy(), frame,waitTime=1000)
+                        draw_keypoints(keypoints, lhand_keypoint,rhand_keypoint,face_keypoint, img.copy(), frame,waitTime=500)
 
                         keypoints_0_reshape = keypoints[:, 0] # x coordinate
                         non_zero_0_ind = np.nonzero(keypoints_0_reshape)
@@ -301,12 +315,16 @@ def clean_data(recordings=None, resume=False, range_flag=False, x_filter = 0):
                         ## hardcode range filter
                         
                         if range_flag:
-                            if mean_0 < x_filter:
+                            if mean_0 < x_filter_min or mean_0 > x_filter_max:
                                 action = 'n' 
                             else:
-                                action = input(f'Frame {frame}, Person {idx + 1}/{len(people)}, Action: ')
+                                if q_filter_on:
+                                    action = 'y'
+                                else:
+                                    action = input(f'Frame {frame}, Person {idx + 1}/{len(people)}, Action: ')
                         else:
                             action = input(f'Frame {frame}, Person {idx + 1}/{len(people)}, Action: ')
+
                         # action = input(f'Frame {frame}, Person {idx + 1}/{len(people)}, Action: ')
 
                         
@@ -346,9 +364,9 @@ def clean_data(recordings=None, resume=False, range_flag=False, x_filter = 0):
                                 break
                             elif action[0] == 'r':
                                 frame_change = frame
-                                x_filter = int(action[2:])
+                                x_filter_min = int(action[2:].split(' ')[0])
+                                x_filter_max = int(action[2:].split(' ')[1])
 
-                                
                             else:
                                 print("Wrong action")
                                 frame_change = frame
