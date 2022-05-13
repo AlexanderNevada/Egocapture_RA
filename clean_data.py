@@ -207,7 +207,7 @@ def load_data(rec_dir, output_list, valid_list, start, end):
                 'gender': keypoints['gender'][keypoints_idx],
             }
 
-def clean_data(recordings=None, resume=False, range_flag=False, x_filter = 700):
+def clean_data(recordings=None, resume=False, range_flag=False, x_filter = 0):
     for rec in recordings:
         image_dir, openpose_dir, rec_dir = get_root_path(rec)
 
@@ -513,6 +513,7 @@ def save_keypoint_images(recs):
 
 if __name__ == '__main__':
     args = parser.parse_args()
+    print('args.resume',args.resume)
     clean_data(recordings=args.recordings, resume=args.resume, range_flag = args.rflag)
     # filter_data(args.recordings)
     save_keypoint_images(args.recordings)
