@@ -207,8 +207,9 @@ def load_data(rec_dir, output_list, valid_list, start, end):
                 'gender': keypoints['gender'][keypoints_idx],
             }
 
-def clean_data(recordings=None, resume=False, range_flag=False, x_filter = 700):
+def clean_data(recordings=None, resume=False, range_flag=False, x_filter = 0):
     for rec in recordings:
+        q_filter = False
         image_dir, openpose_dir, rec_dir = get_root_path(rec)
 
         # print('image_dir',image_dir)
@@ -290,7 +291,7 @@ def clean_data(recordings=None, resume=False, range_flag=False, x_filter = 700):
                         # hand_keypoints = np.concatenate([lhand_keypoint[hand_joint_idx, :],
                         #                      rhand_keypoint[hand_joint_idx, :]], axis=0)  # [20, 3]  # both hands for THE person
 
-                        draw_keypoints(keypoints, lhand_keypoint,rhand_keypoint,face_keypoint, img.copy(), frame,waitTime=1000)
+                        draw_keypoints(keypoints, lhand_keypoint,rhand_keypoint,face_keypoint, img.copy(), frame,waitTime=500)
 
                         keypoints_0_reshape = keypoints[:, 0] # x coordinate
                         non_zero_0_ind = np.nonzero(keypoints_0_reshape)
@@ -301,12 +302,21 @@ def clean_data(recordings=None, resume=False, range_flag=False, x_filter = 700):
                         ## hardcode range filter
                         
                         if range_flag:
-                            if mean_0 < x_filter:
-                                action = 'n' 
+                            if x_filter >0:
+                                if mean_0 < x_filter:
+                                    action = 'n' 
+                            elif x_filter<0:
+                                if mean_0 >= x_filter:
+                                    action = 'n' 
+
                             else:
-                                action = input(f'Frame {frame}, Person {idx + 1}/{len(people)}, Action: ')
+                                if q_filter:
+                                    action = 'y'
+                                else:
+                                    action = input(f'Frame {frame}, Person {idx + 1}/{len(people)}, Action: ')
                         else:
                             action = input(f'Frame {frame}, Person {idx + 1}/{len(people)}, Action: ')
+
                         # action = input(f'Frame {frame}, Person {idx + 1}/{len(people)}, Action: ')
 
                         
@@ -347,8 +357,10 @@ def clean_data(recordings=None, resume=False, range_flag=False, x_filter = 700):
                             elif action[0] == 'r':
                                 frame_change = frame
                                 x_filter = int(action[2:])
+                            elif action[0] == 'q':
+                                frame_change = frame
+                                q_filter = True
 
-                                
                             else:
                                 print("Wrong action")
                                 frame_change = frame

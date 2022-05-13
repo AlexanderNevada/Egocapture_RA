@@ -1,5 +1,5 @@
 '''
-Usage: python3 clean_data.py --recordings recording_20220312_s1_04_mingjie_yan
+Usage: python3 clean_data.py --recordings recording_20220315_s1_01_qi_cuixi
 '''
 
 import argparse
@@ -18,7 +18,7 @@ import pickle
 from IPython import embed
 
 # define path and constants
-data_root = '/media/maturk/T7/'
+data_root = '/media/qimaqi/My Passport/ego_data'
 confidence_thresh = 0.2
 rescale = 1.2
 valid_joints_thresh = 6
@@ -177,16 +177,28 @@ def is_valid_frame(valid_people, valid_detections_lhand, valid_detections_rhand,
 
     return True, keypoints, lhand_keypoint, rhand_keypoint, face_keypoint
 
-def get_root_path(rec):
-    rec_dir = join(data_root,'hololens_data','record_20220312',rec)
-    print('Recording directory is: ',rec_dir)
-    image_dir = join(rec_dir,'2022-03-12-152041', 'PV')
-    print('image_dir is :',image_dir)
-    openpose_dir = join(rec_dir, '2022-03-12-152041/', 'keypoints/')#'2022-03-12-145312','/keypoints/')
-    print('openpose_dir is: ',openpose_dir)
+# def get_root_path(rec):
+#     rec_dir = join(data_root,'hololens_data','record_20220315',rec)  ## Change this to your rec_dir
+#     print('Recording directory is: ',rec_dir)
+#     image_dir = join(rec_dir,'2022-03-15-145226', 'PV') ## Change this to your image_dir, change "2022-03-15-145226"
+#     print('image_dir is :',image_dir)
+#     openpose_dir = join(rec_dir, '2022-03-15-145226/', 'keypoints/') # Change this to your openpose_dir, change "2022-03-15-145226"
+#     print('openpose_dir is: ',openpose_dir)
     
-    return image_dir, openpose_dir, rec_dir
+#     return image_dir, openpose_dir, rec_dir
 
+
+def get_root_path(rec):
+    # rec_dir = join(data_root, 'hololens_data', f'record_{rec[10:18]}', rec)
+    # rec_dir = glob(join(rec_dir, '2021*'))[0]
+    
+    rec_dir = glob(join(data_root,'hololens_data','*',rec))[0]
+    rec_dir = glob(join(rec_dir, '2022*'))[0]
+    # Qi 
+    print('rec',rec_dir)
+    image_dir = join(rec_dir, 'PV')
+    openpose_dir = join(rec_dir, 'keypoints')
+    return image_dir, openpose_dir, rec_dir
 
 def load_data(rec_dir, output_list, valid_list, start, end):
     keypoints = np.load(join(rec_dir, 'keypoints.npz'))
@@ -213,6 +225,7 @@ def load_data(rec_dir, output_list, valid_list, start, end):
                 'imgname': keypoints['imgname'][keypoints_idx],
                 'gender': keypoints['gender'][keypoints_idx],
             }
+    return output_list,valid_list
 
 
 def clean_data(recordings=None, resume=False):
@@ -229,14 +242,32 @@ def clean_data(recordings=None, resume=False):
 
         output_lists = []
         valid_lists = []
+        
+        # Matias Clean Method: specify frames numbers to clean second person detected in frame (clean_second_person) or delete all people detected in frame (clean_all_people)
+        clean_second_person = [1475, 1492, 1498, 1499, 1500, 1501, 1502, 1504, 1505, 1506, 1507, 1509, 1511, 1520, 1521, 1522, 1523, 1525, 1527, 1528, 
+        1529, 1531, 1533, 1536, 1537, 1576, 1772, 1785, 1786, 1787, 1825, 1858, 1859, 1860, 1861, 1862, 1863, 1864, 1866, 1872, 1875, 1884, 
+        1892, 1911, 1912, 1914, 1916, 1918, 2010, 2212, 2214, 2215, 2441, 2720, 2721, 2725, 2726, 2729, 2730, 2816, 2865, 2866, 2873, 2874, 2875, 2876, 
+        2877, 2893, 2894, 2895, 2900, 2901, 2902, 2903, 2907, 2910, 2911, 2912, 3095, 3504, 3997, 4237, 4241, 4242, 4244, 4245, 4246, 4248, 4252, 4255, 
+        4256, 4261, 4262, 4263, 4265, 4266, 4269, 4272, 4273, 4274, 4275, 4277, 4283, 4284, 4285, 4287, 4288, 4289, 4290, 4293]
+
+        clean_all_list = list(range(1512,1520)) + list(range(1872,1884)) 
+        # Qi update
+        two_list = []
+        multipe_list = [] # [1503, 1510, 1530, 1865, 1871, 1886, 1887, 1888, 1889, 1890, 2718, 2908, 2909, 2913, 4227, 4228, 4249, 4250, 4253, 4254, 4257, 4258, 4259, 4260, 4267, 4313]
+        zero_people_list = [] # zero_people_list [1514, 1516, 1517]
+
+        # first run auto show multiple people list and zero people list
+        # look through the images save the actually 0 list, wrong 
+        # 
 
         for start, end in zip(starts, ends):
 
             print(f'Start processing, Start: {start}, End: {end}')
             output_list = [None] * (end - start)
             valid_list = [None] * (end - start)
+
             if resume:
-                load_data(rec_dir, output_list, valid_list, start, end)
+                output_list, valid_list = load_data(rec_dir, output_list, valid_list, start, end)
                 embed()
 
             auto_end_frame = -1
@@ -244,7 +275,7 @@ def clean_data(recordings=None, resume=False):
             while frame < end:
                 try:
                     image_file = glob(join(image_dir, f'*frame_{frame:05d}.jpg'))[0]
-                    print('image_file',image_file)
+                    #print('image_file',image_file) DELETE
                 except IndexError:
                     frame += 1
                     if frame >= auto_end_frame:
@@ -267,12 +298,32 @@ def clean_data(recordings=None, resume=False):
                     with open(openpose_file, 'r') as f:
                         people = json.load(f)['people']
                     print(f'Automatically processing frame {frame:05d}, {len(people)} people detected')
-                    valid_detections = [np.reshape(x['pose_keypoints_2d'], (-1, 3))
-                                    for x in people]
+                    if len(people)==0:
+                        zero_people_list.append(frame)
+                    if len(people) == 2:
+                        two_list.append(frame)
+                    if len(people) > 2:
+                        multipe_list.append(frame)
                     
-                    valid_detections_lhand = [np.reshape(x['hand_left_keypoints_2d'],(-1,3)) for x in people]
-                    valid_detections_rhand = [np.reshape(x['hand_right_keypoints_2d'],(-1,3)) for x in people]
-                    valid_detections_face = [np.reshape(x['face_keypoints_2d'],(-1,3)) for x in people]
+                    if frame in clean_second_person and len(people) > 0:
+                        x=people[0]
+                        valid_detections = [np.reshape(x['pose_keypoints_2d'], (-1, 3))]
+                        valid_detections_lhand = [np.reshape(x['hand_left_keypoints_2d'],(-1,3))]
+                        valid_detections_rhand = [np.reshape(x['hand_right_keypoints_2d'],(-1,3))]
+                        valid_detections_face = [np.reshape(x['face_keypoints_2d'],(-1,3))]
+                        
+                    elif frame in clean_all_list:
+                        frame+=1
+                        continue
+                    
+                    else : 
+                        try:
+                            valid_detections = [np.reshape(x['pose_keypoints_2d'], (-1, 3)) for x in people]
+                            valid_detections_lhand = [np.reshape(x['hand_left_keypoints_2d'],(-1,3))for x in people]
+                            valid_detections_rhand = [np.reshape(x['hand_right_keypoints_2d'],(-1,3))for x in people]
+                            valid_detections_face = [np.reshape(x['face_keypoints_2d'],(-1,3))for x in people]
+                        except:
+                            pass
           
                 else:
                     # Manual mode
@@ -297,9 +348,9 @@ def clean_data(recordings=None, resume=False):
 
 
                         draw_keypoints(keypoints, lhand_keypoint,rhand_keypoint,face_keypoint, img.copy(), frame,waitTime=1000)
-
+ 
                         action = input(f'Frame {frame}, Person {idx + 1}/{len(people)}, Action: ')
-
+ 
                         '''
                         Possible actions:
                         'y' or '':  Confirm that the shown person is the target
@@ -318,6 +369,7 @@ def clean_data(recordings=None, resume=False):
                                 valid_detections_lhand.append(lhand_keypoint)
                                 valid_detections_rhand.append(rhand_keypoint)
                                 valid_detections_face.append(face_keypoint)
+                                
                             elif action == 'n' or action == 'a':
                                 continue
                             elif action == 'b':
@@ -396,11 +448,15 @@ def clean_data(recordings=None, resume=False):
         output_lists = list(filter(lambda x: False if x is None else True, output_lists))
         valid_lists = list(filter(lambda x: False if x is None else True, valid_lists))
         
+
         output_dict = transform_list_to_dict(output_lists)
         valid_dict = transform_list_to_dict(valid_lists)
         np.savez(join(rec_dir, f'keypoints.npz'), **output_dict)
         np.savez(join(rec_dir, f'valid_frame.npz'), **valid_dict)
         embed()
+        print('2_people_list', two_list)
+        print('zero_people_list', zero_people_list)
+        print('multipe_list',multipe_list)
 
 def filter_data(recs):
     for rec in recs:
@@ -487,14 +543,13 @@ def test (recs):
             save_dir = join(data_root, 'kp_vis', rec)
             save_name = join(save_dir, imgname[-34:])
             print(save_name)
-    
 def save_keypoint_images(recs):
     # dates = ['0911', '0918', '0910', '0921', '0923']
     # recs = get_recs_from_dates(dates)
     for rec in tqdm(recs):
         image_dir, openpose_dir, rec_dir = get_root_path(rec)
 
-        kp_file = np.load(join(rec_dir,'keypoints.npz'))
+        kp_file = np.load(join(rec_dir, 'keypoints.npz'))
         n_frames = len(kp_file['imgname'])
         for idx in trange(n_frames):
             imgname = kp_file['imgname'][idx]
@@ -511,13 +566,16 @@ def save_keypoint_images(recs):
             save_dir = join(data_root, 'kp_vis', rec)
             if not os.path.exists(save_dir):
                 os.makedirs(save_dir)
-            save_name = join(save_dir, imgname[-34:])
+            new_name= os.path.basename(imgname).split('_')[-1]
+            # save_name = join(save_dir, f'{idx:05d}.jpg')
+            save_name = join(save_dir, new_name)
 
             draw_keypoints(keypoints, lhand_keypoint,rhand_keypoint,face_keypoint, img.copy(), save_name=save_name)
 
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    #clean_data(recordings=args.recordings, resume=args.resume)
+    print('args.resume',args.resume)
+    clean_data(recordings=args.recordings, resume=args.resume)
     #filter_data(args.recordings)
     save_keypoint_images(args.recordings)
