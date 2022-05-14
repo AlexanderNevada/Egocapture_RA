@@ -28,9 +28,7 @@ resize_scale = 2
 parser = argparse.ArgumentParser()
 parser.add_argument('--recordings', nargs='+', default=[], help='Recordings to be processed')
 parser.add_argument('--visualize', dest='visualize', action='store_true')
-parser.add_argument('--resume', dest='resume', action='store_false')
-parser.add_argument('--rflag',dest='rflag', action='store_true' )
-parser.set_defaults(rflag=True)
+parser.add_argument('--resume', dest='resume', action='store_true')
 # parser.set_defaults(rflag=True)
 
 
@@ -65,9 +63,9 @@ def merge_face(valid_people_face):
     return keypoints
 
 
-def draw_keypoints(keypoints, lhand_keypoint,rhand_keypoint,face_keypoint,img, frame=0, waitTime=0, save_name=None):
+def draw_keypoints(keypoints, lhand_keypoint,rhand_keypoint,face_keypoint,img, frame=0, waitTime=0, save_name=None, x_filter_min = 0, x_filter_max = 2592):
     draw = ImageDraw.Draw(img)
-  
+    height = np.shape(img)[0]
     #valid = keypoints[:, -1] > confidence_thresh
     valid_keypoints = keypoints[:, :-1]
     valid_lhand = lhand_keypoint[:,-1] 
@@ -80,6 +78,10 @@ def draw_keypoints(keypoints, lhand_keypoint,rhand_keypoint,face_keypoint,img, f
     line_joint_indexs = [[0, 1], [1, 2], [1, 5], [1, 8], [2, 3], [3, 4], [5, 6], [6, 7], [8, 9], [8, 12],
                              [9, 10], [10, 11], [12, 13], [13, 14]]
     
+    if x_filter_min != 0 or x_filter_max !=2592:
+        draw.line(xy=[x_filter_min/2,0,x_filter_min/2,height], fill=(255, 0, 0, 0), width=2)
+        draw.line(xy=[x_filter_max/2,0,x_filter_max/2,height], fill=(255, 0, 0, 0), width=2)
+
     for k in range(valid_keypoints.shape[0]):
         draw.ellipse((valid_keypoints[k][0] / resize_scale - 4, valid_keypoints[k][1] / resize_scale - 4,
                       valid_keypoints[k][0] / resize_scale + 4, valid_keypoints[k][1] / resize_scale + 4),
@@ -199,7 +201,7 @@ def load_data(rec_dir, output_list, valid_list, start, end):
     valid_frame_id = valid['imgname']
     keypoints_frame_id = [int(x.split('/')[-1][-9:-4]) for x in keypoints_frame_id]
     valid_frame_id = [int(x.split('/')[-1][-9:-4]) for x in valid_frame_id]
-    for frame in range(start, end):
+    for frame in tqdm(list(range(start, end))):
         try:
             valid_idx = valid_frame_id.index(frame)
         except ValueError:
@@ -221,7 +223,7 @@ def load_data(rec_dir, output_list, valid_list, start, end):
                 'gender': keypoints['gender'][keypoints_idx],
             }
 
-def clean_data(recordings=None, resume=False, range_flag=False, x_filter_min = 0, x_filter_max = 2592):
+def clean_data(recordings=None, resume=False, x_filter_min = 0, x_filter_max = 2592):
     for rec in recordings:
         q_filter_on = False
         image_dir, openpose_dir, rec_dir = get_root_path(rec)
@@ -230,12 +232,16 @@ def clean_data(recordings=None, resume=False, range_flag=False, x_filter_min = 0
         df = pd.read_csv(join(data_root, 'gt_info-2022.csv'))
         info = df.loc[df['recording_name'] == rec]
         # print('info',info)
+        print("info['body_idx_fpv']",info['body_idx_fpv'])
         gender = info['body_idx_fpv'].iloc[0][2]
         starts = np.array(info['start']).astype(np.int32)
         ends = np.array(info['end']).astype(np.int32)
 
         output_lists = []
         valid_lists = []
+        multipe_list = []
+        frame_count_zero_list = []
+        wrong_range_list = 0
 
         for start, end in zip(starts, ends):
 
@@ -248,14 +254,15 @@ def clean_data(recordings=None, resume=False, range_flag=False, x_filter_min = 0
             if resume:
                 
                 load_data(rec_dir, output_list, valid_list, start, end)
-                embed()
+                # embed()
 
             auto_end_frame = -1
+            q_end_frame = -1
+            
             frame = start
             while frame < end:
                 try:
                     image_file = glob(join(image_dir, f'*frame_{frame:05d}.jpg'))[0]
-                    print('image_file',image_file)
                 except IndexError:
                     frame += 1
                     if frame >= auto_end_frame:
@@ -267,6 +274,13 @@ def clean_data(recordings=None, resume=False, range_flag=False, x_filter_min = 0
                 valid_detections_lhand = []
                 valid_detections_face = []
                 auto = frame < auto_end_frame
+                if q_filter_on:
+                    q_filter_on = frame < q_end_frame
+                    if q_filter_on == False:
+                        q_end_frame = -1
+                        print('multipe_list',sorted(set(multipe_list)))
+                        print('frame_count_zero_list',sorted(set(frame_count_zero_list)))
+
 
                 rel_image_path = os.path.relpath(image_file, data_root)
                 img = Image.open(image_file)
@@ -290,9 +304,9 @@ def clean_data(recordings=None, resume=False, range_flag=False, x_filter_min = 0
                     with open(openpose_file, 'r') as f:
                         people = json.load(f)['people']
                     print(f"{len(people)} people detected in frame {frame:05d}")
-
                     frame_change = -1
 
+                    frame_count = 0
                     for idx, person in enumerate(people):
                         #keypoints = person['pose_keypoints_2d']
                         #keypoints = np.reshape(np.array(keypoints), (-1, 3))
@@ -304,7 +318,6 @@ def clean_data(recordings=None, resume=False, range_flag=False, x_filter_min = 0
                         # hand_keypoints = np.concatenate([lhand_keypoint[hand_joint_idx, :],
                         #                      rhand_keypoint[hand_joint_idx, :]], axis=0)  # [20, 3]  # both hands for THE person
 
-                        draw_keypoints(keypoints, lhand_keypoint,rhand_keypoint,face_keypoint, img.copy(), frame,waitTime=500)
 
                         keypoints_0_reshape = keypoints[:, 0] # x coordinate
                         non_zero_0_ind = np.nonzero(keypoints_0_reshape)
@@ -313,22 +326,25 @@ def clean_data(recordings=None, resume=False, range_flag=False, x_filter_min = 0
                         # print('mean_0',mean_0)
 
                         ## hardcode range filter
-                        
-                        if range_flag:
-                            if mean_0 < x_filter_min or mean_0 > x_filter_max:
-                                action = 'n' 
-                            else:
-                                if q_filter_on:
-                                    action = 'y'
-                                else:
-                                    action = input(f'Frame {frame}, Person {idx + 1}/{len(people)}, Action: ')
+                        if mean_0 < x_filter_min or mean_0 > x_filter_max:
+                            action = 'n' 
+                            if not q_filter_on:
+                                draw_keypoints(keypoints, lhand_keypoint,rhand_keypoint,face_keypoint, img.copy(), frame,waitTime=500, x_filter_min= x_filter_min, x_filter_max=x_filter_max)
+                                wrong_range_list+=1
+                                if wrong_range_list >=20:
+                                    wrong_range_list = 0
+                                    x_filter_min = 0
+                                    x_filter_max = 2592
+                                    print('maybe wrong set, change to default')
                         else:
-                            action = input(f'Frame {frame}, Person {idx + 1}/{len(people)}, Action: ')
+                            if q_filter_on:
+                                action = 'y'
+                                print('accept q')
+                            else:
+                                draw_keypoints(keypoints, lhand_keypoint,rhand_keypoint,face_keypoint, img.copy(), frame,waitTime=500, x_filter_min= x_filter_min, x_filter_max=x_filter_max)
+                                action = input(f'Frame {frame}, Person {idx + 1}/{len(people)}, Action: ')
 
                         # action = input(f'Frame {frame}, Person {idx + 1}/{len(people)}, Action: ')
-
-                        
-
                         '''
                         Possible actions:
                         'y' or '':  Confirm that the shown person is the target
@@ -347,6 +363,7 @@ def clean_data(recordings=None, resume=False, range_flag=False, x_filter_min = 0
                                 valid_detections_lhand.append(lhand_keypoint)
                                 valid_detections_rhand.append(rhand_keypoint)
                                 valid_detections_face.append(face_keypoint)
+                                frame_count+=1
                             elif action == 'n' or action == 'a':
                                 continue
                             elif action == 'b':
@@ -362,11 +379,18 @@ def clean_data(recordings=None, resume=False, range_flag=False, x_filter_min = 0
                                 auto_end_frame = min(int(action[5:]) + 1, end)
                                 frame_change = frame
                                 break
+                            elif action == 'r':
+                                frame_change =frame
+                                x_filter_min = 0
+                                x_filter_max = 2592                                
                             elif action[0] == 'r':
                                 frame_change = frame
                                 x_filter_min = int(action[2:].split(' ')[0])
                                 x_filter_max = int(action[2:].split(' ')[1])
-
+                            elif action[0] == 'q':
+                                q_end_frame = min(int(action[2:]) + 1, end)
+                                frame_change = frame
+                                q_filter_on = True
                             else:
                                 print("Wrong action")
                                 frame_change = frame
@@ -379,6 +403,19 @@ def clean_data(recordings=None, resume=False, range_flag=False, x_filter_min = 0
                     if frame_change >= 0:
                         frame = frame_change
                         continue
+
+                    if frame_count == 0:
+                        frame_count_zero_list.append(frame)
+                    else: 
+                        if frame in frame_count_zero_list: # not in this case anymore
+                            frame_count_zero_list.remove(frame)
+                    if len(people) >= 2: # potenially have multiple possibility
+                        if frame_count >=2:
+                            multipe_list.append(frame)
+                        else:
+                            if frame in multipe_list:
+                                multipe_list.remove(frame)
+
                 
                 # print('valid_detections',valid_detections,np.shape(valid_detections))
                 valid, keypoints, lhand_keypoint, rhand_keypoint,face_keypoint = is_valid_frame(valid_detections, 
@@ -405,11 +442,6 @@ def clean_data(recordings=None, resume=False, range_flag=False, x_filter_min = 0
                     'imgname': rel_image_path,
                     'valid': valid
                 }
-                # gt_file = join(gt_dir, f'frame_{frame:05d}.pkl')
-                # with open(gt_file, 'rb') as f:
-                #     gt = pickle.load(f, encoding='latin1')
-                # frame_dict.update(gt)
-
 
                 frame += 1
                 if frame >= auto_end_frame:
@@ -425,7 +457,7 @@ def clean_data(recordings=None, resume=False, range_flag=False, x_filter_min = 0
         valid_dict = transform_list_to_dict(valid_lists)
         np.savez(join(rec_dir, f'keypoints.npz'), **output_dict)
         np.savez(join(rec_dir, f'valid_frame.npz'), **valid_dict)
-        embed()
+        # embed()
 
 def filter_data(recs):
     for rec in recs:
@@ -532,6 +564,6 @@ def save_keypoint_images(recs):
 if __name__ == '__main__':
     args = parser.parse_args()
     print('args.resume',args.resume)
-    clean_data(recordings=args.recordings, resume=args.resume, range_flag = args.rflag)
+    clean_data(recordings=args.recordings, resume=args.resume)
     # filter_data(args.recordings)
     save_keypoint_images(args.recordings)
